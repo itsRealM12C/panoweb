@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>4K 360 Wobble</title>
+    <style>
+        /* Invisible Tap Highlights */
+        * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; box-sizing: border-box; }
+        
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, sans-serif; }
+        
+        video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; opacity: 0.3; }
+        #masterCanvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; z-index: 5; background: transparent; display: none; }
+        
+        .ui { position: fixed; inset: 0; z-index: 10; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: 40px 20px; }
+        .btn { pointer-events: auto; background: #fff; border: none; padding: 20px 45px; border-radius: 60px; font-weight: 900; letter-spacing: 1px; cursor: pointer; box-shadow: 0 10px 40px rgba(0,0,0,0.8); transition: 0.1s; }
+        .btn:active { transform: scale(0.95); opacity: 0.8; }
+        
+        #dlBtn { background: #00ff88; display: none; margin-bottom: 80px; }
+        #resetBtn { background: #ff4444; color: #fff; display: none; margin-bottom: 10px; padding: 12px 25px; border-radius: 30px; font-size: 12px; }
+
+        /* Modernized Guide Track */
+        #guide-track { 
+            position: fixed; top: 50%; left: 10%; width: 80%; height: 30px; 
+            border: 1px solid rgba(255,255,255,0.3); border-radius: 15px; 
+            z-index: 12; display: none; transform: translateY(-50%);
+            background: rgba(255,255,255,0.05); overflow: hidden;
+        }
+        #bar { position: absolute; height: 100%; width: 0%; background: #00ff88; box-shadow: 0 0 15px #00ff88; transition: width 0.01s linear; }
+
+        .status { color: #fff; background: rgba(0,0,0,0.8); padding: 12px 25px; border-radius: 40px; font-weight: bold; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(5px); }
+    </style>
+</head>
+<body>
+
+<video id="v" autoplay playsinline></video>
+<canvas id="masterCanvas"></canvas>
+
+<div id="guide-track"><div id="bar"></div></div>
+
+<div class="ui">
+    <div class="status" id="msg">4K SCAN READY</div>
+    <button class="btn" id="startBtn">START 15s SCAN</button>
+    <button class="btn" id="dlBtn">SAVE 4K PANORAMA</button>
+    <button class="btn" id="resetBtn">TRY AGAIN</button>
+</div>
+
+<script>
+    const v = document.getElementById('v'), msg = document.getElementById('msg'), 
+          bar = document.getElementById('bar'), startBtn = document.getElementById('startBtn'),
+          dlBtn = document.getElementById('dlBtn'), resetBtn = document.getElementById('resetBtn'), 
+          master = document.getElementById('masterCanvas'), mctx = master.getContext('2d'), 
+          guide = document.getElementById('guide-track');
+    
+    let isScanning = false, timer = null, frameCount = 0;
+    const MAX_FRAMES = 1000;
+    const INTERVAL = 12; // Adjusted for a "Fast 15s" feel (12s total)
+    const TARGET_WIDTH = 3840; // 4K Wide
+    const TARGET_HEIGHT = 720;
+
+    async function init() {
+        try {
+            const s = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment", height: { ideal: 720 } } 
+            });
+            v.srcObject = s;
+            reset();
+            startBtn.style.display = "none";
+            guide.style.display = "block";
+            isScanning = true;
+            
+            v.onloadedmetadata = () => {
+                master.width = TARGET_WIDTH; 
+                master.height = TARGET_HEIGHT;
+                master.style.display = "block";
+                timer = setInterval(captureSlice, INTERVAL);
+            };
+        } catch (e) { alert("Check HTTPS and Camera permissions."); }
+    }
+
+    function captureSlice() {
+        if (!isScanning || frameCount >= MAX_FRAMES) return;
+
+        const sliceW = TARGET_WIDTH / MAX_FRAMES; // 3.84px slices
+        const sourceW = 10; // Better blending with slightly wider source
+        const sourceX = (v.videoWidth / 2) - (sourceW / 2);
+        
+        mctx.drawImage(v, sourceX, 0, sourceW, v.videoHeight, frameCount * sliceW, 0, sliceW, TARGET_HEIGHT);
+        
+        frameCount++;
+        bar.style.width = (frameCount / MAX_FRAMES * 100) + "%";
+        
+        if (frameCount % 20 === 0) {
+            msg.innerText = `SCANNING: ${Math.round((frameCount/MAX_FRAMES)*100)}%`;
+        }
+
+        if (frameCount >= MAX_FRAMES) stop();
+    }
+
+    function stop() {
+        isScanning = false; 
+        clearInterval(timer);
+        msg.innerText = "4K PANO COMPLETE";
+        guide.style.display = "none";
+        dlBtn.style.display = "block"; 
+        resetBtn.style.display = "block";
+        v.style.display = "none";
+    }
+
+    function reset() {
+        frameCount = 0; bar.style.width = "0%";
+        dlBtn.style.display = "none"; resetBtn.style.display = "none";
+        guide.style.display = "none"; master.style.display = "none";
+        v.style.display = "block"; mctx.clearRect(0, 0, master.width, master.height);
+        msg.innerText = "4K SCAN READY";
+    }
+
+    dlBtn.onclick = () => {
+        master.toBlob((blob) => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `360_4K_Pano.jpg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 'image/jpeg', 0.92);
+    };
+
+    startBtn.onclick = init;
+    resetBtn.onclick = () => { reset(); startBtn.style.display = "block"; };
+</script>
+</body>
+</html>
